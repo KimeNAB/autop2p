@@ -1,0 +1,173 @@
+// Decompiled with JetBrains decompiler
+// Type: AutoP2P.AutoP2PSettings
+// Assembly: AutoP2P, Version=0.2.0.0, Culture=neutral, PublicKeyToken=null
+// MVID: CC697889-314E-4AC3-AA15-73608EE9E5AD
+// Assembly location: C:\Users\Kimee\Desktop\AutoP2P.dll
+
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+
+namespace AutoP2P
+{
+  public class AutoP2PSettings
+  {
+    public class Map : INotifyPropertyChanged
+    {
+      private string _mapName;
+      private ObservableCollection<AutoP2PSettings.TrackZone> _trackZones;
+
+      public Map(string mapName)
+      {
+        this._mapName = mapName;
+        this._trackZones = new ObservableCollection<AutoP2PSettings.TrackZone>();
+        this._trackZones.Add(new AutoP2PSettings.TrackZone(0, 0));
+      }
+
+      public string mapName
+      {
+        get => this._mapName;
+        set
+        {
+          if (!(this._mapName != value))
+            return;
+          this._mapName = value;
+          this.OnPropertyChanged(nameof (mapName));
+        }
+      }
+
+      public ObservableCollection<AutoP2PSettings.TrackZone> trackZones
+      {
+        get => this._trackZones;
+        set
+        {
+          if (this._trackZones == value)
+            return;
+          this._trackZones = value;
+          this.OnPropertyChanged(nameof (trackZones));
+        }
+      }
+
+      public event PropertyChangedEventHandler PropertyChanged;
+
+      protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)
+      {
+        PropertyChangedEventHandler propertyChanged = this.PropertyChanged;
+        if (propertyChanged == null)
+          return;
+        propertyChanged((object) this, new PropertyChangedEventArgs(propertyName));
+      }
+    }
+
+    public class Root : INotifyPropertyChanged
+    {
+      private string _profileName;
+      private string _trackName;
+      private ObservableCollection<AutoP2PSettings.Map> _map;
+
+      public Root(bool isDefault)
+      {
+        if (!isDefault)
+          return;
+        this.profileName = "Default";
+        this.trackName = "Default";
+        this._map = new ObservableCollection<AutoP2PSettings.Map>();
+        this._map.Add(new AutoP2PSettings.Map("Race"));
+        this._map.Add(new AutoP2PSettings.Map("Regen"));
+        this._map.Add(new AutoP2PSettings.Map("Quali"));
+      }
+
+      public string profileName
+      {
+        get => this._profileName;
+        set
+        {
+          if (!(this._profileName != value))
+            return;
+          this._profileName = value;
+          this.OnPropertyChanged(nameof (profileName));
+        }
+      }
+
+      public string trackName
+      {
+        get => this._trackName;
+        set
+        {
+          if (!(this._trackName != value))
+            return;
+          this._trackName = value;
+          this.OnPropertyChanged(nameof (trackName));
+        }
+      }
+
+      public ObservableCollection<AutoP2PSettings.Map> Map
+      {
+        get => this._map;
+        set
+        {
+          if (this._map == value)
+            return;
+          this._map = value;
+          this.OnPropertyChanged(nameof (Map));
+        }
+      }
+
+      public event PropertyChangedEventHandler PropertyChanged;
+
+      protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)
+      {
+        PropertyChangedEventHandler propertyChanged = this.PropertyChanged;
+        if (propertyChanged == null)
+          return;
+        propertyChanged((object) this, new PropertyChangedEventArgs(propertyName));
+      }
+    }
+
+    public class TrackZone : INotifyPropertyChanged
+    {
+      private int _start;
+      private int _end;
+
+      public TrackZone(int start, int end)
+      {
+        this._start = start;
+        this._end = end;
+      }
+
+      public int start
+      {
+        get => this._start;
+        set
+        {
+          if (value == this._start)
+            return;
+          this._start = value;
+          this.OnPropertyChanged(nameof (start));
+        }
+      }
+
+      public int end
+      {
+        get => this._end;
+        set
+        {
+          if (value == this._end)
+            return;
+          this._end = value;
+          this.OnPropertyChanged(nameof (end));
+        }
+      }
+
+      public event PropertyChangedEventHandler PropertyChanged;
+
+      protected virtual void OnPropertyChanged([CallerMemberName] string propertyName = null)
+      {
+        PropertyChangedEventHandler propertyChanged = this.PropertyChanged;
+        if (propertyChanged == null)
+          return;
+        propertyChanged((object) this, new PropertyChangedEventArgs(propertyName));
+      }
+    }
+  }
+}

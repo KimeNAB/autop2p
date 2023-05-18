@@ -1,49 +1,434 @@
 // Decompiled with JetBrains decompiler
-// Type: XamlGeneratedNamespace.GeneratedInternalTypeHelper
+// Type: AutoP2P.AutoP2P
 // Assembly: AutoP2P, Version=0.2.0.0, Culture=neutral, PublicKeyToken=null
 // MVID: CC697889-314E-4AC3-AA15-73608EE9E5AD
 // Assembly location: C:\Users\Kimee\Desktop\AutoP2P.dll
 
+using AutoP2P.Properties;
+using GameReaderCommon;
+using InputManagerCS;
+using log4net;
+using Newtonsoft.Json;
+using SimHub;
+using SimHub.Plugins;
 using System;
-using System.CodeDom.Compiler;
 using System.ComponentModel;
-using System.Diagnostics;
-using System.Globalization;
-using System.Reflection;
-using System.Windows.Markup;
+using System.IO;
+using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using System.Windows.Media;
 
-namespace XamlGeneratedNamespace
+namespace AutoP2P
 {
-  [DebuggerNonUserCode]
-  [GeneratedCode("PresentationBuildTasks", "4.0.0.0")]
-  [EditorBrowsable(EditorBrowsableState.Never)]
-  public sealed class GeneratedInternalTypeHelper : InternalTypeHelper
+  [PluginDescription("Plugin to automate P2P pression")]
+  [PluginAuthor("Manuel Biancolilla")]
+  [PluginName("AutoP2P")]
+  public class AutoP2P : IPlugin, IDataPlugin, IWPFSettingsV2, IWPFSettings, INotifyPropertyChanged
   {
-    protected override object CreateInstance(Type type, CultureInfo culture) => Activator.CreateInstance(type, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.CreateInstance, (Binder) null, (object[]) null, culture);
-
-    protected override object GetPropertyValue(
-      PropertyInfo propertyInfo,
-      object target,
-      CultureInfo culture)
+    private bool securityBtn;
+    public bool learningState;
+    private bool zoneAcquired;
+    private bool oldLapAcquired;
+    private bool learningLapAcquired;
+    private int zoneStartPosition;
+    private int oldLap;
+    private int learningLap;
+    private int mapCount = 3;
+    private int _mapUsed;
+    private int trackPosition;
+    private int trackLength;
+    private int P2P_Game;
+    private double P2P_BatteryRaw;
+    private int P2P_BatteryFiltered;
+    private bool zoneCondition;
+    private bool newPression;
+    private bool pluginCondition;
+    private bool QualifyingMode;
+    private bool carInZone;
+    private bool P2P_Requested;
+    private bool P2P_Pressed;
+    private bool waitingNewLap;
+    private bool wasExecuted;
+    private bool condionsMet;
+    private AutoP2PSettings.TrackZone currentZone = new AutoP2PSettings.TrackZone(0, 0);
+    public int isAIDriving;
+    public string[] CarClassesAllowed = new string[4]
     {
-      return propertyInfo.GetValue(target, BindingFlags.Default, (Binder) null, (object[]) null, culture);
+      "FSR 2023",
+      "FSR23_ACA",
+      "FSR23_PRO",
+      "FSR23_WC"
+    };
+
+    public event PropertyChangedEventHandler PropertyChanged;
+
+    public void NotifyPropertyChanged([CallerMemberName] string propertyName = "")
+    {
+      PropertyChangedEventHandler propertyChanged = this.PropertyChanged;
+      if (propertyChanged == null)
+        return;
+      propertyChanged((object) this, new PropertyChangedEventArgs(propertyName));
     }
 
-    protected override void SetPropertyValue(
-      PropertyInfo propertyInfo,
-      object target,
-      object value,
-      CultureInfo culture)
+    public int mapUsed
     {
-      propertyInfo.SetValue(target, value, BindingFlags.Default, (Binder) null, (object[]) null, culture);
+      get => this._mapUsed;
+      set
+      {
+        if (value == this._mapUsed)
+          return;
+        this._mapUsed = value;
+        this.NotifyPropertyChanged(nameof (mapUsed));
+      }
     }
 
-    protected override Delegate CreateDelegate(Type delegateType, object target, string handler) => (Delegate) target.GetType().InvokeMember("_CreateDelegate", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.InvokeMethod, (Binder) null, target, new object[2]
-    {
-      (object) delegateType,
-      (object) handler
-    }, (CultureInfo) null);
+    public AutoP2PSettings.Root SettingsRoot { get; set; }
 
-    protected override void AddEventHandler(EventInfo eventInfo, object target, Delegate handler) => eventInfo.AddEventHandler(target, handler);
+    public PluginManager PluginManager { get; set; }
+
+    public ImageSource PictureIcon => (ImageSource) IWpfSettingsExtensions.ToIcon((IWPFSettings) this, Resources.sdkmenuicon);
+
+    public string LeftMenuTitle => "Auto P2P";
+
+    public void DataUpdate(PluginManager pluginManager, ref GameData data)
+    {
+      if (!data.GameRunning || data.OldData == null || data.NewData == null || this.securityBtn)
+        return;
+      foreach (string str in this.CarClassesAllowed)
+      {
+        if (data.OldData.CarClass == str)
+        {
+          if (!data.GamePaused)
+          {
+            this.trackPosition = (int) Convert.ToInt16(pluginManager.GetPropertyValue("DataCorePlugin.GameRawData.CurrentPlayer.mLapDist"));
+            this.trackLength = (int) Convert.ToInt16(data.OldData.TrackLength);
+            this.P2P_Game = (int) Convert.ToInt16(pluginManager.GetPropertyValue("DataCorePlugin.GameRawData.CurrentPlayerTelemetry.mElectricBoostMotorState"));
+            this.P2P_BatteryRaw = Convert.ToDouble(pluginManager.GetPropertyValue("DataCorePlugin.GameRawData.CurrentPlayerTelemetry.mBatteryChargeFraction"));
+            this.P2P_BatteryFiltered = (int) Decimal.Multiply(100M, (Decimal) this.P2P_BatteryRaw);
+            this.SettingsRoot.trackName = data.OldData.TrackName;
+            this.zoneCondition = this.ZoneCondition(this.trackPosition, this.SettingsRoot.Map[this.mapUsed]);
+            if (this.QualifyingMode)
+            {
+              this.mapUsed = 2;
+              this.P2P_Requested = true;
+            }
+            if (this.learningState)
+              this.P2PLearningZones(this.trackPosition, data.OldData.CurrentLap);
+            if (!this.learningState && !this.QualifyingMode && this.isAIDriving == 0)
+              this.MainProgram(this.mapUsed, this.zoneCondition);
+            if (data.OldData.Throttle < 95.0)
+            {
+              this.P2P_Pressed = false;
+              this.P2P_Requested = false;
+              this.newPression = false;
+            }
+            if (this.P2P_Pressed)
+            {
+              if (data.OldData.Throttle >= 95.0)
+                this.P2P_Requested = true;
+              this.newPression = false;
+            }
+            if (!this.P2P_Pressed && this.newPression)
+            {
+              this.P2P_Requested = false;
+              this.newPression = false;
+            }
+            if (this.P2P_Requested && this.P2P_Game == 2)
+              this.condionsMet = true;
+            if (!this.P2P_Requested && this.P2P_Game != 2)
+              this.condionsMet = true;
+            if (this.P2P_Requested && this.P2P_Game != 2)
+              this.condionsMet = false;
+            if (!this.P2P_Requested && this.P2P_Game == 2)
+              this.condionsMet = false;
+            if (!this.condionsMet && !this.wasExecuted)
+            {
+              this.wasExecuted = true;
+              Logging.Current.Info((object) ("P2P Requested = " + this.P2P_Requested.ToString()));
+              this.P2P_Press();
+            }
+          }
+          if (data.GameInMenu)
+            this.InitializeConditions();
+        }
+      }
+    }
+
+    public void InitializeConditions()
+    {
+      this.mapUsed = 0;
+      this.zoneCondition = false;
+      this.newPression = false;
+      this.pluginCondition = false;
+      this.QualifyingMode = false;
+      this.carInZone = false;
+      this.P2P_Requested = false;
+      this.P2P_Pressed = false;
+      this.waitingNewLap = false;
+      this.wasExecuted = false;
+      this.condionsMet = false;
+      this.learningState = false;
+      this.zoneAcquired = false;
+      this.oldLapAcquired = false;
+      this.learningLapAcquired = false;
+    }
+
+    public void P2P_Press()
+    {
+      if (!this.wasExecuted)
+        return;
+      Task.Run((Func<Task>) (async () =>
+      {
+        Keyboard.KeyDown(Keys.K);
+        await Task.Delay(100);
+        Keyboard.KeyUp(Keys.K);
+        this.wasExecuted = false;
+      }));
+    }
+
+    public void MainProgram(int mapUsed, bool zoneCondition)
+    {
+      if (zoneCondition)
+        this.P2P_Requested = true;
+      if (zoneCondition)
+        return;
+      this.P2P_Requested = false;
+    }
+
+    public bool ZoneCondition(int trackPosition, AutoP2PSettings.Map EngineMaps)
+    {
+      if (!this.pluginCondition)
+      {
+        for (int index = 0; index < EngineMaps.trackZones.Count; ++index)
+        {
+          if (trackPosition >= EngineMaps.trackZones[index].start && trackPosition <= EngineMaps.trackZones[index].end)
+          {
+            this.currentZone.end = EngineMaps.trackZones[index].end;
+            this.carInZone = true;
+            this.pluginCondition = true;
+          }
+        }
+      }
+      if (trackPosition >= this.currentZone.end && this.pluginCondition)
+      {
+        this.pluginCondition = false;
+        this.carInZone = false;
+      }
+      return this.carInZone;
+    }
+
+    public void P2PLearningZones(int currentTrackPosition, int currentLap)
+    {
+      if (!this.oldLapAcquired)
+      {
+        this.oldLap = currentLap;
+        this.oldLapAcquired = true;
+        Logging.Current.Info((object) ("Old Lap Acquired, Lap = " + this.oldLap.ToString()));
+      }
+      if (this.oldLapAcquired && this.oldLap == currentLap && !this.waitingNewLap)
+      {
+        this.waitingNewLap = true;
+        Logging.Current.Info((object) "Waiting new lap");
+      }
+      if (!this.learningLapAcquired && this.oldLap < currentLap)
+      {
+        this.learningLap = currentLap;
+        this.learningLapAcquired = true;
+        this.waitingNewLap = false;
+        this.SettingsRoot.Map[this.mapUsed].trackZones.Clear();
+        Logging.Current.Info((object) "Learning Lap started and acquired, current map trackzones cleared");
+      }
+      int num;
+      if (this.learningLapAcquired && currentLap == this.learningLap)
+      {
+        if (this.P2P_Game == 2 && !this.zoneAcquired)
+        {
+          this.zoneStartPosition = currentTrackPosition;
+          this.zoneAcquired = true;
+          Logging.Current.Info((object) "Zone Started");
+        }
+        if (this.P2P_Game == 1 && this.zoneAcquired)
+        {
+          AutoP2PSettings.TrackZone trackZone = new AutoP2PSettings.TrackZone(this.zoneStartPosition, currentTrackPosition);
+          this.zoneAcquired = false;
+          Logging.Current.Info((object) ("Zone Acquired: " + trackZone.start.ToString() + " - " + trackZone.end.ToString()));
+          this.SettingsRoot.Map[this.mapUsed].trackZones.Add(trackZone);
+          ILog current = Logging.Current;
+          string str1 = this.mapUsed.ToString();
+          num = this.SettingsRoot.Map[this.mapUsed].trackZones.Count;
+          string str2 = num.ToString();
+          string str3 = "Map Used: " + str1 + ", current trackzones count = " + str2;
+          current.Info((object) str3);
+        }
+      }
+      if (this.learningLapAcquired && currentLap > this.learningLap && this.P2P_Game == 1 && this.zoneAcquired)
+      {
+        Logging.Current.Info((object) "Found zone acquiring still in process");
+        AutoP2PSettings.TrackZone trackZone = new AutoP2PSettings.TrackZone(this.zoneStartPosition, currentTrackPosition);
+        this.zoneAcquired = false;
+        ILog current1 = Logging.Current;
+        num = trackZone.start;
+        string str4 = num.ToString();
+        num = trackZone.end;
+        string str5 = num.ToString();
+        string str6 = "Zone Acquired: " + str4 + " - " + str5;
+        current1.Info((object) str6);
+        this.SettingsRoot.Map[this.mapUsed].trackZones.Add(trackZone);
+        ILog current2 = Logging.Current;
+        num = this.mapUsed;
+        string str7 = num.ToString();
+        num = this.SettingsRoot.Map[this.mapUsed].trackZones.Count;
+        string str8 = num.ToString();
+        string str9 = "Map Used: " + str7 + ", current trackzones count = " + str8;
+        current2.Info((object) str9);
+      }
+      if (!this.learningLapAcquired || currentLap <= this.learningLap || this.zoneAcquired)
+        return;
+      Logging.Current.Info((object) "Learning Lap Finished");
+      for (int index = 0; index < this.mapCount; ++index)
+      {
+        if (this.SettingsRoot.Map[index].trackZones.Count == 0)
+        {
+          ILog current = Logging.Current;
+          num = this.mapUsed;
+          string str = "Found a map with no trackzones: " + num.ToString() + " , adding default trackzone (0,0)";
+          current.Info((object) str);
+          AutoP2PSettings.TrackZone trackZone = new AutoP2PSettings.TrackZone(0, 0);
+          this.SettingsRoot.Map[index].trackZones.Add(trackZone);
+        }
+      }
+      if (this.SettingsRoot.Map[this.mapUsed].trackZones.Count > 0)
+      {
+        Logging.Current.Info((object) "Learning Lap trackzones > 0 = true");
+        this.oldLapAcquired = false;
+        this.learningLapAcquired = false;
+        this.learningState = false;
+        int index = this.SettingsRoot.Map[this.mapUsed].trackZones.Count - 1;
+        if (this.SettingsRoot.Map[this.mapUsed].trackZones[index].end <= this.SettingsRoot.Map[this.mapUsed].trackZones[index].start && this.SettingsRoot.Map[this.mapUsed].trackZones[index].end != 0)
+        {
+          Logging.Current.Info((object) "Lap finished while zone was being acquired");
+          this.SettingsRoot.Map[this.mapUsed].trackZones[index].end = this.trackLength;
+          this.SettingsRoot.Map[this.mapUsed].trackZones[0].start = 0;
+        }
+      }
+      if (this.SettingsRoot.Map[this.mapUsed].trackZones.Count == 0)
+      {
+        Logging.Current.Info((object) "Learning Lap trackzones = 0, adding default trackzone (0,0)");
+        this.SettingsRoot.Map[this.mapUsed].trackZones.Add(new AutoP2PSettings.TrackZone(0, 0));
+      }
+      Logging.Current.Info((object) "Saving all the engine maps");
+      IPluginExtensions.SaveCommonSettings<AutoP2PSettings.Root>((IPlugin) this, "Settings", this.SettingsRoot);
+    }
+
+    public void End(PluginManager pluginManager) => IPluginExtensions.SaveCommonSettings<AutoP2PSettings.Root>((IPlugin) this, "Settings", this.SettingsRoot);
+
+    public System.Windows.Controls.Control GetWPFSettingsControl(PluginManager pluginManager) => (System.Windows.Controls.Control) new SettingsControl(this, this.mapUsed);
+
+    public void fileLoad(OpenFileDialog openFileDialog)
+    {
+      using (StreamReader streamReader = new StreamReader(openFileDialog.FileName))
+      {
+        string fileName = openFileDialog.FileName;
+        AutoP2PSettings.Root root = JsonConvert.DeserializeObject<AutoP2PSettings.Root>(streamReader.ReadToEnd());
+        if (root.Map.Count < 4)
+        {
+          this.SettingsRoot.profileName = Path.GetFileNameWithoutExtension(fileName);
+          this.SettingsRoot = root;
+          IPluginExtensions.SaveCommonSettings<AutoP2PSettings.Root>((IPlugin) this, "Settings", this.SettingsRoot);
+        }
+        else
+        {
+          Logging.Current.Info((object) "Profile not loaded, more maps than allowed, restoring to default");
+          this.SettingsRoot = new AutoP2PSettings.Root(true);
+        }
+      }
+    }
+
+    public void Init(PluginManager pluginManager)
+    {
+      Logging.Current.Info((object) "Starting plugin");
+      this.SettingsRoot = IPluginExtensions.ReadCommonSettings<AutoP2PSettings.Root>((IPlugin) this, "Settings", (Func<AutoP2PSettings.Root>) (() => new AutoP2PSettings.Root(true)));
+      IPluginExtensions.AttachDelegate<AutoP2P.AutoP2P, bool>(this, "Plugin_Enabled", (Func<bool>) (() => !this.securityBtn));
+      IPluginExtensions.AttachDelegate<AutoP2P.AutoP2P, bool>(this, "Learning_Mode", (Func<bool>) (() => this.learningState));
+      IPluginExtensions.AttachDelegate<AutoP2P.AutoP2P, string>(this, "Current_Map", (Func<string>) (() => this.SettingsRoot.Map[this.mapUsed].mapName));
+      IPluginExtensions.AttachDelegate<AutoP2P.AutoP2P, int>(this, "Current_Map_Number", (Func<int>) (() => this.mapUsed));
+      IPluginExtensions.AttachDelegate<AutoP2P.AutoP2P, int>(this, "Current_Map_Zones", (Func<int>) (() => this.SettingsRoot.Map[this.mapUsed].trackZones.Count));
+      IPluginExtensions.AttachDelegate<AutoP2P.AutoP2P, int>(this, "P2P_Game", (Func<int>) (() => this.P2P_Game));
+      IPluginExtensions.AttachDelegate<AutoP2P.AutoP2P, bool>(this, "Qualifying_Mode", (Func<bool>) (() => this.QualifyingMode));
+      IPluginExtensions.AttachDelegate<AutoP2P.AutoP2P, bool>(this, "Car_in_zone", (Func<bool>) (() => this.carInZone));
+      IPluginExtensions.AttachDelegate<AutoP2P.AutoP2P, int>(this, "Battery_Charge", (Func<int>) (() => this.P2P_BatteryFiltered));
+      IPluginExtensions.AddEvent<AutoP2P.AutoP2P>(this, "map_Changed");
+      IPluginExtensions.AddEvent<AutoP2P.AutoP2P>(this, "safeBtn_Pressed");
+      IPluginExtensions.AddEvent<AutoP2P.AutoP2P>(this, "rF2P2PBtn_Pressed");
+      IPluginExtensions.AddEvent<AutoP2P.AutoP2P>(this, "learningState_pressed");
+      IPluginExtensions.AddEvent<AutoP2P.AutoP2P>(this, "qualifyingmode_Pressed");
+      IPluginExtensions.AddAction<AutoP2P.AutoP2P>(this, "P2P", (Action<PluginManager, string>) ((a, b) =>
+      {
+        if (this.securityBtn)
+          return;
+        this.P2P_Pressed = !this.P2P_Pressed;
+        this.newPression = true;
+        IPluginExtensions.TriggerEvent<AutoP2P.AutoP2P>(this, "P2P_Pressed");
+        Logging.Current.Info((object) ("P2P_Pressed = " + this.P2P_Pressed.ToString()));
+      }), (Action<PluginManager, string>) null);
+      IPluginExtensions.AddAction<AutoP2P.AutoP2P>(this, "mapPlus", (Action<PluginManager, string>) ((a, b) =>
+      {
+        if (this.securityBtn || this.learningState)
+          return;
+        ++this.mapUsed;
+        if (this.mapUsed >= 3)
+          this.mapUsed = 0;
+        Logging.Current.Info((object) ("Map = " + this.mapUsed.ToString()));
+        IPluginExtensions.TriggerEvent<AutoP2P.AutoP2P>(this, "map_Changed");
+        this.NotifyPropertyChanged(nameof (Init));
+      }), (Action<PluginManager, string>) null);
+      IPluginExtensions.AddAction<AutoP2P.AutoP2P>(this, "mapMinus", (Action<PluginManager, string>) ((a, b) =>
+      {
+        if (!this.securityBtn && !this.learningState)
+        {
+          --this.mapUsed;
+          if (this.mapUsed < 0)
+            this.mapUsed = 2;
+        }
+        Logging.Current.Info((object) ("Map = " + this.mapUsed.ToString()));
+        this.NotifyPropertyChanged(nameof (Init));
+        IPluginExtensions.TriggerEvent<AutoP2P.AutoP2P>(this, "map_Changed");
+      }), (Action<PluginManager, string>) null);
+      IPluginExtensions.AddAction<AutoP2P.AutoP2P>(this, "safe", (Action<PluginManager, string>) ((a, b) =>
+      {
+        this.securityBtn = !this.securityBtn;
+        IPluginExtensions.TriggerEvent<AutoP2P.AutoP2P>(this, "safeBtn_Pressed");
+        if (!this.securityBtn)
+          Logging.Current.Info((object) "Plugin Activated");
+        if (!this.securityBtn)
+          return;
+        Logging.Current.Info((object) "Plugin Deactivated");
+      }), (Action<PluginManager, string>) null);
+      IPluginExtensions.AddAction<AutoP2P.AutoP2P>(this, "learningstate", (Action<PluginManager, string>) ((a, b) =>
+      {
+        if (this.securityBtn)
+          return;
+        this.learningState = !this.learningState;
+        IPluginExtensions.TriggerEvent<AutoP2P.AutoP2P>(this, "learningState_pressed");
+        if (!this.learningState)
+          Logging.Current.Info((object) "Learning Mode Deactivated");
+        if (!this.learningState)
+          return;
+        Logging.Current.Info((object) "Learning Mode Activated");
+      }), (Action<PluginManager, string>) null);
+      IPluginExtensions.AddAction<AutoP2P.AutoP2P>(this, "qualifyingmode", (Action<PluginManager, string>) ((a, b) =>
+      {
+        if (this.securityBtn || this.learningState)
+          return;
+        this.QualifyingMode = !this.QualifyingMode;
+        IPluginExtensions.TriggerEvent<AutoP2P.AutoP2P>(this, "qualifyingmode_Pressed");
+        if (!this.QualifyingMode)
+          Logging.Current.Info((object) "Qualifying deploy mode: map based");
+        if (!this.QualifyingMode)
+          return;
+        Logging.Current.Info((object) "Qualifying deploy mode: fixed");
+      }), (Action<PluginManager, string>) null);
+    }
   }
 }
